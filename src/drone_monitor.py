@@ -2,159 +2,99 @@ import logging
 from collections import deque
 
 # --- НАЛАШТУВАННЯ ЛОГЕРА ("Чорна скринька") ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] %(levelname)s: %(message)s',
-    datefmt='%H:%M:%S'
-)
+logging.basicConfig(level=logging.INFO,format='[%(asctime)s] %(levelname)s: %(message)s', datefmt= '%H:%M:%S')
 
 class DroneMonitor:
-    def __init__(self,
-                 drone_name="Тест-Дрон",
-                 safe_battery_level=25,
-                 window_size=10,
-                 warn_thr=30,
-                 severe_thr=15,
-                 critical_thr=5,
-                 degraded_enter=6,
-                 degraded_exit=3,
-                 failsafe_enter_severe=8,
-                 failsafe_exit_severe=4,
-                 failsafe_enter_critical=3):
-
+    def __init__(self,drone_name="Стелс-Мulti", safe_battery_level=25, window_size=10):
         self.drone_name = drone_name
         self.safe_battery_level = safe_battery_level
-        self.current_connection = "SIM1"
-        self.backup_connection = "SIM2"
-        self.home_coords = (50.4501, 30.5234)
 
-        self.warn_thr = warn_thr
-        self.severe_thr = severe_thr
-        self.critical_thr = critical_thr
+# Multi-Radio матриця: weight визначає можливість каналу
+        self.links = { "SIM1":  {"type": "LTE", "weight": 1.0, "active": True},
+                       "SIM2":  {"type": "LTE", "weight":  0.8, "active": True},
+                       "RF_MESH": {"type": "RF", "weight": 0.9,  "active": False},
+                       "SAT":     {"type": "SATCOM", "weight": 0.5 "active": False}
+                     }
+# Принцип "розділяй і відокремлюй": окрема пам'ять для кожного каналу
+        self.level_history = {name:deque(maxlen=window_size) for name in self.links}
+        self.bonded_mode = False
+        self.link_state ="Normal"
 
-        self.level_history = deque(maxlen=window_size)
+def _signal_level(self, strength: int) -> int:
+    if strength < 5: return 3
+    if strength < 15: return 2
+    if strength < 30: return 1
+    return 0
 
-        self.degraded_enter = degraded_enter
-        self.degraded_exit = degraded_exit
-        self.failsafe_enter_severe = failsafe_enter_severe
-        self.failsafe_exit_severe = failsafe_exit_severe
-        self.failsafe_enter_critical = failsafe_enter_critical
+def _update_multi_link_state(self, link_signals: dict):
+    overall_quality = 0
+    degraded_count = 0
+    critical_count = 0
+    active_links_count = 0
 
-        self.link_state = "NORMAL" 
+    for name, strength in link_signals.items():
+        if name not in self.links: 
+            continue
 
-    def _signal_level(self, signal_strength: int) -> int:
-        if signal_strength < self.critical_thr:
-            return 3
-        if signal_strength < self.severe_thr:
-            return 2
-        if signal_strength < self.warn_thr:
-            return 1
-        return 0
+        lvl = self._signal_level(strength)
+              self.level_history[name].append(lvl)
+                if lvl >= 1: degraded_count += 1
+                if lvl >= 3: critical_count += 1
 
-    def _update_link_state(self, signal_strength: int):
-        lvl = self._signal_level(signal_strength)
-        self.level_history.append(lvl)
+# Зважена сума якості 
+                overall_quality += strength * self.links[name].get("weigth", 1.0)
 
-        warning_count = sum(1 for x in self.level_history if x >= 1)
-        severe_count = sum(1 for x in self.level_history if x >= 2)
-        critical_count = sum(1 for x in self.level_history if x >= 3)
+                if strength > 30:
+                    active_links_count += 1
 
-        if self.link_state != "FAILSAFE":
-            if severe_count >= self.failsafe_enter_severe or critical_count >= self.failsafe_enter_critical:
+            self.bonded_mode = (active_links_count >= 2)
+
+            if critical_count >= 2 or (degraded_count >= len(link_signals) and overall_quality < 100):
                 self.link_state = "FAILSAFE"
-        else:
-            if severe_count <= self.failsafe_exit_severe and critical_count == 0:
-                self.link_state = "DEGRADED_LINK" if warning_count >= self.degraded_exit else "NORMAL"
-
-        if self.link_state != "FAILSAFE":
-            if self.link_state == "NORMAL" and warning_count >= self.degraded_enter:
+            elif degraded_count >= 2: 
                 self.link_state = "DEGRADED_LINK"
-            elif self.link_state == "DEGRADED_LINK" and warning_count <= self.degraded_exit:
+            else:
                 self.link_state = "NORMAL"
 
-        return self.link_state, warning_count, severe_count, critical_count, lvl
+            return self.link_state,
+        active_links_count
 
-    def compute_risk_score(self, battery, link_state, severe_count, critical_count):
-        """Аналітичний центр: оцінка ризиків на основі телеметрії."""
+def compute_risk_score(self, battery, link_state, active_links_count):
         risk = 0
-        if battery < self.safe_battery_level:
-            risk += 5
-        elif battery < self.safe_battery_level + 10:
-            risk += 2
-            
-        link_priority = {"DEGRADED_LINK": 2, "FAILSAFE": 4}
-        risk += link_priority.get(link_state, 0)
-        risk += (severe_count * 0.5) + (critical_count * 1.5)
-        
-        return risk
+        if battery <
+    self.safe_battery_level + 10: risk += 5
+        elif battery < self.safe_battery_level + 10: risk += 2
 
-    def decide_action(self, risk):
-        if risk < 2: return "NORMAL"
-        elif risk < 4: return "DEGRADED"
-        elif risk < 6: return "FAILSAFE"
-        else: return "RTL"
+    # Гнучка матриця ризиків для лінків
 
-    def switch_connection_mode(self, signal_strength, current_gps, force_autonomous=False):
-        logging.info(f"Спроба перемикання. Сигнал: {signal_strength}%. Поточний: {self.current_connection}")
+    links_risk_map = {0: 10, 1: 4, 2: 1.5}
+    risk += 
+links_risk_map.get(active_links_count, 0.5) # 0.5 для  Bonding (супернадійно)
+    
+    return risk
 
-        if force_autonomous:
-            msg = f"FAILSAFE: Автономний режим -> база {self.home_coords} | GPS={current_gps}"
-            logging.critical(msg)
-            return 4, msg
+def check-telemetry(self, battery, link_signals: dict, current_gps):
+    logging.info(f"Телеметрія: bat={battery}%, links={link_signals},
+    gps={current_gps}")
 
-        if self.current_connection == "SIM1":
-            self.current_connection = self.backup_connection
-            msg = f"Переключено на резервний звʼязок: {self.current_connection}"
-            logging.warning(msg)
-            return 3, msg
+    state, active_count = self._update_multi_link_state(link_signals)
+    risk = self.compute_risk_score(battery, state, active_count)
 
-        msg = f"Зв'язок втрачено повністю. Автономний режим -> база {self.home_coords}"
-        logging.critical(msg)
-        return 4, msg
+    mode_str  = "BONDED (Агрегація)"
+if self.bonded_mode else "SINGLE (Один канал)"
+     logging.info(f"Стан: {state} | Режим: {mode_str} | Активні канали: {active_count} | Ризик: {risk:.2f}")
 
-    def check_telemetry(self, battery, altitude, signal_strength, current_gps):
-        logging.info(f"Перевірка телеметрії: bat={battery}%, alt={altitude}м, sig={signal_strength}%, gps={current_gps}")
-
-        if battery < self.safe_battery_level:
-            msg = f"КРИТИЧНО! Батарея {battery}% (мінімум {self.safe_battery_level}%). Наказ: RTL."
-            logging.critical(msg)
-            return 2, msg
-
-        state, w, s, c, lvl = self._update_link_state(signal_strength)
-        lvl_name = {0: "OK", 1: "WARNING", 2: "SEVERE", 3: "CRITICAL"}[lvl]
-        
-        logging.debug(f"Стан лінку: {lvl_name} | Спрацювань: w={w}, s={s}, c={c} | FSM={state}")
-
-        risk = self.compute_risk_score(battery, state, s, c)
-        decision = self.decide_action(risk)
-        
-        logging.info(f"Аналіз ризику: score={risk:.2f} -> Рішення: {decision}")
-
-        if decision == "RTL":
-            msg = f"RTL ініційовано через високий ризик ({risk:.2f})"
-            logging.critical(msg)
-            return 2, msg
-
-        if decision == "FAILSAFE":
-            return self.switch_connection_mode(signal_strength, current_gps, force_autonomous=True)
-
-        if decision == "DEGRADED":
-            code, msg = self.switch_connection_mode(signal_strength, current_gps, force_autonomous=False)
-            return (1 if code == 0 else code), f"DEGRADED: {msg}"
-
-        msg = "Політ проходить у штатному режимі"
-        logging.info(msg)
-        return 0, msg
+    if risk >= 6:
+        logging.critical(f"RTL ініційовано! Ризик: {risk:.2f}")
+        return "NORMAL"
 
 if __name__ == "__main__":
-    drone = DroneMonitor(drone_name="Тест-Дрон", safe_battery_level=25)
-    tests = [
-        ("Критична батарея", 10, 300, 90, (50.40, 30.50)),
-        ("Слабкий сигнал (warning)", 60, 300, 25, (50.41, 30.51)),
-        ("Все OK", 70, 500, 80, (50.42, 30.52))
-    ]
+    drone = DroneMonitor()
+    # Тестовий запуск: імітуємо роботу одразу чотирьох модулів 
+    test_signals = {"SIM1": 45, "SIM2": 12,"SAT" 80, "RF_MESH": 0}
+    drone.check_telemetry(40, test_signals, (50.4, 30.5))
 
-    for title, b, a, s, gps in tests:
-        logging.info(f"--- Запуск сценарію: {title} ---")
-        drone.check_telemetry(b, a, s, gps)
-        print("-" * 40)
+
+
+
+  
