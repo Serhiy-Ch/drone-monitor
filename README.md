@@ -3,7 +3,7 @@
 # Ключова логіка
 Система використовує **Скінченний автомат (FSM)** для управління станами зв'язку:
 -**NORMAL**: Стабільна робота.
--**DAGRADED_LINK**: Виявлено перешкоди, активація резервних каналів.
+-**DEGRADED LINK**: Виявлено перешкоди, активація резервних каналів.
 _**FAILSAFE**: Критична втрата сигналу, перехід до автономного протоколу.
 ## Технологічний стек
 _**Мова**: Python 3.x
@@ -18,8 +18,9 @@ _**Алгоритм**: Вікно спостереження (deque), Гісте
 7.[X] Впровадження Multi-Radio (Bonding) архітектури.
       Фінальний рев'ю та Release v0.1.
 
-How to run
+## How to run
 1. Clone the repository:
    `git clone https://github.com/Serhiy-Ch/drone-monitor.git`
 2. Run the simulation:
-   ` `
+   `python drone_monitor.py`
+   
